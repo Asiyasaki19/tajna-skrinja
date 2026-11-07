@@ -896,17 +896,22 @@ const rig = { yaw: 0, pitch: .36, radius: 14, target: DEFAULT_TARGET.clone() };
 const goal = { yaw: 0, pitch: .36, radius: 14, target: DEFAULT_TARGET.clone() };
 let baseRadius = 14, lastInput = 0, focused = false;
 function fitCamera() {
-  const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false);
+  const w = innerWidth, h = innerHeight; if (!w || !h) return;
+  renderer.setSize(w, h, false);
   camera.aspect = w / h; camera.updateProjectionMatrix();
   const t = Math.tan(camera.fov * Math.PI / 360);
   const HUD = h <= 520 ? 70 : Math.min(150, h * .2);
   const rW = 9.2 / (2 * t * camera.aspect), rH = 10.6 / (2 * t) * (h / (h - HUD));
   baseRadius = Math.min(27, Math.max(rW, rH));
+  if (!isFinite(baseRadius)) baseRadius = 16;
   camera.setViewOffset(w, h, 0, -HUD * .45, w, h);
   if (!focused) goal.radius = baseRadius;
 }
-addEventListener("resize", fitCamera); fitCamera(); rig.radius = goal.radius = baseRadius * 1.25;
+addEventListener("resize", fitCamera); addEventListener("orientationchange", () => setTimeout(fitCamera, 300));
+addEventListener("pageshow", fitCamera); document.addEventListener("visibilitychange", () => { if (!document.hidden) { fitCamera(); fxSize(); } });
+fitCamera(); rig.radius = goal.radius = baseRadius * 1.25;
 function applyCamera() {
+  if (![rig.yaw, rig.pitch, rig.radius, goal.yaw, goal.pitch, goal.radius].every(isFinite)) { fitCamera(); rig.yaw = goal.yaw = 0; rig.pitch = goal.pitch = .36; rig.radius = goal.radius = baseRadius; }
   rig.yaw += (goal.yaw - rig.yaw) * .1; rig.pitch += (goal.pitch - rig.pitch) * .1; rig.radius += (goal.radius - rig.radius) * .08;
   rig.target.lerp(goal.target, .08);
   const cp = Math.cos(rig.pitch);

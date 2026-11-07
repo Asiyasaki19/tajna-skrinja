@@ -249,7 +249,6 @@
   <div class="overlay" id="intro">
     <div class="emoji">🔒</div>
     <div class="big">Tajna škrinja</div>
-    <div class="for" id="forLine"></div>
     <div class="small">Neko je zaključao porodičnu tajnu u škrinju. Prošetajte po sobi, klikom na stvari otvaraće vam se zagonetke. Vaš cilj je da riješite sve zagonetke kako biste otvorili škrinju.</div>
     <button class="btn-main" id="startBtn" disabled>Učitavanje…</button>
     <button class="btn-ghost-light" id="restartBtn" hidden>Počni ispočetka</button>
@@ -282,7 +281,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
    Personalizacija preko linka:
      escape.html?for=Baka
      escape.html?for=Tetka%20Mara&line=Postajete%20tetka!
-   - for  = ime (piše na uvodnom ekranu)
+   - for  = ime kojim se obraća završna poruka (npr. for=Bako, kako treba da stoji u zvaničnom padežu)
    - line = cela rečenica na kraju (da gramatika bude tačna)
    - code = kod od 6 cifara (podrazumevano 052027, tj. maj 2027)
    - joke = tekst skrivene patke (vaša porodična šala)
@@ -307,7 +306,6 @@ const $ = id => document.getElementById(id);
 const esc = s => s.replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 const buzz = p => navigator.vibrate && navigator.vibrate(p);
 const wait = ms => new Promise(r => setTimeout(r, ms));
-if (who) $("forLine").textContent = `Za: ${who}`;
 $("due").textContent = DUE_TEXT;
 $("after").textContent = AFTER_TEXT;
 
@@ -347,14 +345,22 @@ const sfx = {
   creak:() => { tone(90, 0, .5, "sawtooth", .05); tone(120, .15, .6, "sawtooth", .04); },
   win:  () => [523, 659, 784, 1047, 784, 1047, 1319].forEach((f, i) => tone(f, i * .13, .5, "triangle", .14)),
 };
-/* muzička kutija: tiha uspavanka u petlji (Brams, javno vlasništvo) */
-const MELODY = [
-  [64,.5],[64,.5],[67,2],[64,.5],[64,.5],[67,2],[64,.5],[67,.5],[72,1],[71,1],[69,.5],[69,.5],[67,2],
-  [62,.5],[64,.5],[65,2],[62,.5],[64,.5],[65,2],[62,.5],[65,.5],[71,1],[69,1],[67,.5],[67,.5],[72,2],
-  [null,1.5],
-];
-const BEAT = .78, mhz = n => 440 * Math.pow(2, (n - 69) / 12);
-let musicNext = 0, musicIdx = 0, musicTimer = null, musicLevel = .05, musicHarm = false;
+/* muzika: Pahelbelov Kanon u D-duru (javno vlasništvo), zvuk muzičke kutije */
+const CANON_BASS = [62, 57, 59, 54, 55, 50, 55, 57];                  // D A H F# G D G A
+const CANON_V1 = [78, 76, 74, 73, 71, 69, 71, 73];                    // F# E D C# B A B C#  (duge note)
+const CANON_V2 = [74, 78, 81, 79, 78, 74, 78, 76, 74, 71, 74, 69, 67, 71, 69, 67];   // četvrtine
+const CANON_V3 = [[74, 78, 81, 78], [73, 76, 81, 76], [74, 78, 83, 78], [73, 78, 81, 78], [71, 74, 79, 74], [69, 74, 78, 74], [71, 74, 79, 74], [73, 76, 81, 76]];  // arpeggio
+const LOOP_BEATS = 48, EVENTS = [];
+for (let c = 0; c < 3; c++) {
+  const b0 = c * 16;
+  CANON_BASS.forEach((n, i) => EVENTS.push({ t: b0 + i * 2, n, d: 2, bass: true }));
+  if (c === 0) CANON_V1.forEach((n, i) => EVENTS.push({ t: b0 + i * 2, n, d: 2 }));
+  if (c === 1) CANON_V2.forEach((n, i) => EVENTS.push({ t: b0 + i, n, d: 1 }));
+  if (c === 2) CANON_V3.forEach((chord, i) => chord.forEach((n, k) => EVENTS.push({ t: b0 + i * 2 + k * .5, n, d: .5 })));
+}
+EVENTS.sort((a, b) => a.t - b.t);
+const BEAT = .6, mhz = n => 440 * Math.pow(2, (n - 69) / 12);
+let musicStartT = 0, musicEvt = 0, musicLoop = 0, musicTimer = null, musicLevel = .045, musicHarm = false;
 function musicNote(freq, t0, dur, vol) {
   const c = AC; if (!c || !musicGain) return;
   [[1, vol, "triangle"], [2, vol * .35, "sine"], [3, vol * .12, "sine"]].forEach(([m, v, type]) => {
@@ -366,17 +372,19 @@ function musicNote(freq, t0, dur, vol) {
 }
 function musicTick() {
   const c = AC; if (!c || !soundOn || document.hidden) return;
-  if (musicNext < c.currentTime) musicNext = c.currentTime + .05;
-  while (musicNext < c.currentTime + .8) {
-    const [n, beats] = MELODY[musicIdx];
-    if (n) {
-      musicNote(mhz(n), musicNext, Math.max(1, beats * BEAT * 1.7), musicLevel);
-      if (musicHarm) { musicNote(mhz(n - 12), musicNext, Math.max(1.2, beats * BEAT * 2), musicLevel * .8); musicNote(mhz(n + 12), musicNext + .02, .9, musicLevel * .35); }
+  if (!musicStartT) { musicStartT = c.currentTime + .1; musicEvt = 0; musicLoop = 0; }
+  for (let guard = 0; guard < 5000; guard++) {
+    const ev = EVENTS[musicEvt], when = musicStartT + (musicLoop * LOOP_BEATS + ev.t) * BEAT;
+    if (when > c.currentTime + .8) break;
+    if (when >= c.currentTime - .05) {
+      const dur = Math.max(.5, ev.d * BEAT * 1.3);
+      musicNote(mhz(ev.n), when, dur, ev.bass ? musicLevel * .85 : musicLevel);
+      if (musicHarm && !ev.bass) musicNote(mhz(ev.n + 12), when + .01, dur * .8, musicLevel * .35);
     }
-    musicNext += beats * BEAT; musicIdx = (musicIdx + 1) % MELODY.length;
+    if (++musicEvt >= EVENTS.length) { musicEvt = 0; musicLoop++; }
   }
 }
-function startMusic() { if (musicTimer || !ac()) return; musicNext = 0; musicTimer = setInterval(musicTick, 250); musicTick(); }
+function startMusic() { if (musicTimer || !ac()) return; musicTimer = setInterval(musicTick, 250); musicTick(); }
 $("soundBtn").onclick = () => {
   soundOn = !soundOn; $("soundBtn").textContent = soundOn ? "🔊 Zvuk" : "🔇 Zvuk";
   if (musicGain) musicGain.gain.value = soundOn ? 1 : 0;
@@ -1351,7 +1359,7 @@ function onPick(id) {
 
 /* ---------- otključavanje ---------- */
 async function unlock() {
-  unlocked = true; chestReady = false; clearSave(); musicLevel = .1; musicHarm = true;
+  unlocked = true; chestReady = false; clearSave(); musicLevel = .08; musicHarm = true;
   $("scrim").classList.remove("show");
   focused = true; goal.target.set(0, .4, .9); goal.radius = baseRadius * .5; goal.pitch = .42; goal.yaw = 0;
   markers.box.on = false; markers.box.ring.visible = false;
@@ -1362,7 +1370,7 @@ async function unlock() {
   $("flash").classList.add("go");
   sparkleWorld(chest, 90); sfx.win(); buzz([80, 60, 80, 60, 200]);
   await wait(1200);
-  $("reveal").innerHTML = esc(LINE);
+  $("reveal").innerHTML = (who ? esc(who) + ",<br>" : "") + esc(LINE);
   $("overlay").classList.add("show");
   floaters(); confetti();
   await wait(700); fireworks(8);

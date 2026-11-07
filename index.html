@@ -282,7 +282,8 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
      escape.html?for=Baka
      escape.html?for=Tetka%20Mara&line=Postajete%20tetka!
    - for  = ime kojim se obraća završna poruka (npr. for=Bako, kako treba da stoji u zvaničnom padežu)
-   - line = cela rečenica na kraju; ako je izostavljena, bira se po imenu (Bako -> baka, Deko -> deka, oba -> baka i deka)
+   - line = cela rečenica na kraju; ako je izostavljena, bira se po imenu: Bako -> baka, Deko -> deka,
+             Striko i Strina -> stric i strina, Ujko -> ujak, Ujna, Tetka, Teča; nepoznato ime -> opšta rečenica
    - code = kod od 6 cifara (podrazumevano 052027, tj. maj 2027)
    - joke = tekst skrivene patke (vaša porodična šala)
    Obraćanje je sa "vi". Za "ti" izmenite tekstove ispod.
@@ -296,13 +297,21 @@ const AFTER_TEXT   = "Volimo vas! A sad nas pozovite 📞";
 let introOpen = true;
 const params = new URLSearchParams(location.search);
 const who  = params.get("for");
-// završna rečenica se prilagođava imenu iz linka: Bako -> baka, Deko/Deda -> deka, oboje -> baka i deka
+// završna rečenica se bira po imenu iz linka (Bako -> baka, Striko i Strina -> stric i strina ...)
+const ROLE_RULES = [
+  [/^bak/, "baka"], [/^(ded|dek)/, "deka"], [/^(strik|stric)/, "stric"], [/^strin/, "strina"],
+  [/^(ujk|ujak|ujč)/, "ujak"], [/^ujn/, "ujna"], [/^tet/, "tetka"], [/^teč/, "teča"],
+];
 function defaultLine(name) {
-  const n = (name || "").toLowerCase();
-  const baka = /(^|[^a-zčćžšđ])bak/.test(n), deka = /(^|[^a-zčćžšđ])(ded|dek)/.test(n);
-  if (baka && !deka) return "PONOVO postajete baka!";
-  if (deka && !baka) return "PONOVO postajete deka!";
-  return DEFAULT_LINE;
+  if (!name) return DEFAULT_LINE;                                  // link bez imena: baka i deka
+  const roles = [];
+  name.toLowerCase().split(/[\s,&+]+/).forEach(tok => {
+    const r = ROLE_RULES.find(([re]) => re.test(tok));
+    if (r && !roles.includes(r[1])) roles.push(r[1]);
+  });
+  if (!roles.length) return "PONOVO se porodica uvećava!";         // ime koje ne prepoznajemo
+  const list = roles.length === 1 ? roles[0] : roles.slice(0, -1).join(", ") + " i " + roles[roles.length - 1];
+  return `PONOVO postajete ${list}!`;
 }
 const LINE = params.get("line") || defaultLine(who);
 const DEFAULT_JOKE = "Ova patka zna sve porodične tajne, ali neće da kaže ni reč. 🤫";   // zamenite svojom šalom
@@ -353,28 +362,29 @@ const sfx = {
   creak:() => { tone(90, 0, .5, "sawtooth", .05); tone(120, .15, .6, "sawtooth", .04); },
   win:  () => [523, 659, 784, 1047, 784, 1047, 1319].forEach((f, i) => tone(f, i * .13, .5, "triangle", .14)),
 };
-/* muzika: originalna "tajni agent" tema, sporo i prikriveno (D-mol): puzeći bas, jeka, tremolo gitara */
-const BEAT = 60 / 76, mhz = n => 440 * Math.pow(2, (n - 69) / 12);
-const ROOTS = [50, 50, 55, 55, 46, 57, 50, 50];                // Dm Dm Gm Gm B A Dm Dm
-const BASSCELL = [0, null, null, 0, null, 0, -1, 0];           // korenski ton i hromatski "puzeći" susedni ton
-const STAB = [62, 65, 69, 73];                                 // Dm(maj7): D F A C#
+/* muzika: originalna vesela "tajni agent" tema (D-dur): poskakujući bas, jeka, razigrana trzana gitara */
+const BEAT = 60 / 88, mhz = n => 440 * Math.pow(2, (n - 69) / 12);
+const ROOTS = [50, 47, 55, 57, 50, 47, 55, 57];                // D Hm G A | D Hm G A
+const THIRD = [4, 3, 4, 4, 4, 3, 4, 4];
+const BASSCELL = [0, null, 7, 0, null, "3", 7, 12];            // koren, kvinta, terca, oktava: veselo poskakivanje
+const STAB = [62, 66, 69, 74, 78];                             // D-dur akord (D F# A D F#)
 const MEL = [                                                  // osmine, null = pauza
-  [74, null, null, 73, 74, null, null, null],
-  [77, null, null, 76, 74, null, 73, null],
-  [70, null, null, 69, 70, null, null, null],
-  [74, null, 72, null, 70, null, 67, null],
-  [70, null, 74, null, 77, null, 74, null],
-  [73, null, 76, null, 79, null, 78, 76],
-  [74, null, null, 73, 74, null, 77, null],
-  [74, null, 73, null, 70, null, 69, null],
+  [78, null, 78, 76, 74, null, 73, 74],
+  [71, null, 74, 78, 76, null, 74, null],
+  [79, null, 79, 78, 76, null, 74, 76],
+  [73, null, 76, 81, 80, 81, null, null],
+  [78, null, 78, 76, 74, null, 73, 74],
+  [71, 74, 78, null, 83, null, 81, 78],
+  [79, null, 76, 74, 76, null, 79, null],
+  [81, null, 78, 76, 73, null, 74, null],
 ];
 const LOOP_BEATS = 64, EVENTS = [];
 for (let pass = 0; pass < 2; pass++) for (let bar = 0; bar < 8; bar++) {
   const b0 = (pass * 8 + bar) * 4, root = ROOTS[bar];
-  BASSCELL.forEach((o, i) => { if (o !== null) EVENTS.push({ t: b0 + i * .5, k: "b", n: root + o, d: .5 }); });
-  EVENTS.push({ t: b0, k: "k" }, { t: b0, k: "p", n: root, d: 4 });
+  BASSCELL.forEach((o, i) => { if (o !== null) EVENTS.push({ t: b0 + i * .5, k: "b", n: root + (o === "3" ? THIRD[bar] : o), d: .5 }); });
+  EVENTS.push({ t: b0, k: "k" }, { t: b0 + 2, k: "k" }, { t: b0, k: "p", n: root, d: 4 }, { t: b0, k: "p", n: root + 7, d: 4 });
   for (let i = 0; i < 8; i++) { EVENTS.push({ t: b0 + i * .5, k: "h", a: i % 2 }); if (i === 2 || i === 6) EVENTS.push({ t: b0 + i * .5, k: "s" }); }
-  MEL[bar].forEach((n, i) => { if (n !== null) EVENTS.push({ t: b0 + i * .5, k: "m", n: n - (pass === 1 && bar < 4 ? 12 : 0), d: .9 }); });
+  MEL[bar].forEach((n, i) => { if (n !== null) EVENTS.push({ t: b0 + i * .5, k: "m", n: n + (pass === 1 && bar >= 4 ? 12 : 0), d: .9 }); });
   if (bar === 3 || bar === 7) STAB.forEach(n => EVENTS.push({ t: b0 + 3.5, k: "t", n, d: .4 }));
 }
 EVENTS.sort((a, b) => a.t - b.t);
@@ -382,10 +392,10 @@ let noiseBuf = null, echoIn = null;
 const getNoise = () => noiseBuf || (noiseBuf = (() => { const b = AC.createBuffer(1, AC.sampleRate, AC.sampleRate), d = b.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; return b; })());
 function ensureEcho() {                                        // jeka (dotted osmina), klasičan "špijunski" zvuk gitare
   if (echoIn || !AC || !musicGain) return;
-  echoIn = AC.createGain(); echoIn.gain.value = .6;
+  echoIn = AC.createGain(); echoIn.gain.value = .55;
   const dl = AC.createDelay(2); dl.delayTime.value = BEAT * .75;
-  const lp = AC.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 2200;
-  const fb = AC.createGain(); fb.gain.value = .42;
+  const lp = AC.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 2600;
+  const fb = AC.createGain(); fb.gain.value = .38;
   echoIn.connect(dl); dl.connect(lp); lp.connect(musicGain); lp.connect(fb); fb.connect(dl);
 }
 function mNoise(t0, dur, filterType, freq, q, vol) {
@@ -411,16 +421,16 @@ function mVoice(freq, t0, dur, vol, cutStart, cutEnd, wet, vib) {   // trzani to
   f.type = "lowpass"; f.Q.value = 3; f.frequency.setValueAtTime(cutStart, t0); f.frequency.exponentialRampToValueAtTime(cutEnd, t0 + dur * .8);
   g.gain.setValueAtTime(.0001, t0); g.gain.exponentialRampToValueAtTime(vol, t0 + .01); g.gain.exponentialRampToValueAtTime(.0001, t0 + dur);
   o.connect(f).connect(g).connect(musicGain); if (wet && echoIn) g.connect(echoIn);
-  if (vib) { const l = c.createOscillator(), lg = c.createGain(); l.frequency.value = 5.2; lg.gain.value = 14; l.connect(lg).connect(o.detune); l.start(t0); l.stop(t0 + dur + .05); }
+  if (vib) { const l = c.createOscillator(), lg = c.createGain(); l.frequency.value = 5.6; lg.gain.value = 9; l.connect(lg).connect(o.detune); l.start(t0); l.stop(t0 + dur + .05); }
   o.start(t0); o.stop(t0 + dur + .05);
 }
-const mBass = (freq, t0, dur, vol) => mVoice(freq, t0, dur, vol, 1000, 240, false, false);
-const mPluck = (freq, t0, dur, vol) => mVoice(freq, t0, dur, vol, 2600, 560, true, true);
-function mPad(freq, t0, dur, vol) {                            // tamna, tiha "žica" ispod svega
+const mBass = (freq, t0, dur, vol) => mVoice(freq, t0, dur, vol, 1300, 300, false, false);
+const mPluck = (freq, t0, dur, vol) => mVoice(freq, t0, dur, vol, 3400, 900, true, true);
+function mPad(freq, t0, dur, vol) {                            // topla, tiha podloga ispod svega
   const c = AC; if (!c || !musicGain) return;
   const f = c.createBiquadFilter(), g = c.createGain();
-  f.type = "lowpass"; f.frequency.value = 420; f.Q.value = .8;
-  g.gain.setValueAtTime(.0001, t0); g.gain.exponentialRampToValueAtTime(vol, t0 + .9); g.gain.setValueAtTime(vol, t0 + dur - .8); g.gain.exponentialRampToValueAtTime(.0001, t0 + dur);
+  f.type = "lowpass"; f.frequency.value = 560; f.Q.value = .8;
+  g.gain.setValueAtTime(.0001, t0); g.gain.exponentialRampToValueAtTime(vol, t0 + .8); g.gain.setValueAtTime(vol, t0 + dur - .8); g.gain.exponentialRampToValueAtTime(.0001, t0 + dur);
   f.connect(g).connect(musicGain);
   [-7, 7].forEach(cents => { const o = c.createOscillator(); o.type = "sawtooth"; o.frequency.value = freq; o.detune.value = cents; o.connect(f); o.start(t0); o.stop(t0 + dur + .05); });
 }
@@ -434,13 +444,13 @@ function musicTick() {
     if (when >= c.currentTime - .05) {
       if (ev.k === "b") mBass(mhz(ev.n), when, ev.d * BEAT * 1.5, musicLevel * 1.8);
       else if (ev.k === "k") mKick(when, musicLevel * 2.2);
-      else if (ev.k === "h") mHat(when, musicLevel * (ev.a ? .45 : .22));
-      else if (ev.k === "s") mSnap(when, musicLevel * .7);
-      else if (ev.k === "p") mPad(mhz(ev.n), when, ev.d * BEAT, musicLevel * .75);
-      else if (ev.k === "t") mPluck(mhz(ev.n), when, ev.d * BEAT * 2.2, musicLevel * .6);
+      else if (ev.k === "h") mHat(when, musicLevel * (ev.a ? .5 : .24));
+      else if (ev.k === "s") mSnap(when, musicLevel * .75);
+      else if (ev.k === "p") mPad(mhz(ev.n), when, ev.d * BEAT, musicLevel * .5);
+      else if (ev.k === "t") mPluck(mhz(ev.n), when, ev.d * BEAT * 2.2, musicLevel * .5);
       else {
         mPluck(mhz(ev.n), when, ev.d * BEAT * 2.1, musicLevel * .85);
-        if (musicHarm) mPluck(mhz(ev.n + 12), when + .012, .35, musicLevel * .3);
+        if (musicHarm && ev.n < 84) mPluck(mhz(ev.n + 12), when + .012, .35, musicLevel * .3);
       }
     }
     if (++musicEvt >= EVENTS.length) { musicEvt = 0; musicLoop++; }

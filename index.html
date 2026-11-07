@@ -282,7 +282,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
      escape.html?for=Baka
      escape.html?for=Tetka%20Mara&line=Postajete%20tetka!
    - for  = ime kojim se obraća završna poruka (npr. for=Bako, kako treba da stoji u zvaničnom padežu)
-   - line = cela rečenica na kraju (da gramatika bude tačna)
+   - line = cela rečenica na kraju; ako je izostavljena, bira se po imenu (Bako -> baka, Deko -> deka, oba -> baka i deka)
    - code = kod od 6 cifara (podrazumevano 052027, tj. maj 2027)
    - joke = tekst skrivene patke (vaša porodična šala)
    Obraćanje je sa "vi". Za "ti" izmenite tekstove ispod.
@@ -296,7 +296,15 @@ const AFTER_TEXT   = "Volimo vas! A sad nas pozovite 📞";
 let introOpen = true;
 const params = new URLSearchParams(location.search);
 const who  = params.get("for");
-const LINE = params.get("line") || DEFAULT_LINE;
+// završna rečenica se prilagođava imenu iz linka: Bako -> baka, Deko/Deda -> deka, oboje -> baka i deka
+function defaultLine(name) {
+  const n = (name || "").toLowerCase();
+  const baka = /(^|[^a-zčćžšđ])bak/.test(n), deka = /(^|[^a-zčćžšđ])(ded|dek)/.test(n);
+  if (baka && !deka) return "PONOVO postajete baka!";
+  if (deka && !baka) return "PONOVO postajete deka!";
+  return DEFAULT_LINE;
+}
+const LINE = params.get("line") || defaultLine(who);
 const DEFAULT_JOKE = "Ova patka zna sve porodične tajne, ali neće da kaže ni reč. 🤫";   // zamenite svojom šalom
 const JOKE_TEXT = params.get("joke") || DEFAULT_JOKE;
 const codeParam = (params.get("code") || "").replace(/\D/g, "");
@@ -345,41 +353,64 @@ const sfx = {
   creak:() => { tone(90, 0, .5, "sawtooth", .05); tone(120, .15, .6, "sawtooth", .04); },
   win:  () => [523, 659, 784, 1047, 784, 1047, 1319].forEach((f, i) => tone(f, i * .13, .5, "triangle", .14)),
 };
-/* muzika: Pahelbelov Kanon u D-duru (javno vlasništvo), zvuk muzičke kutije */
-const CANON_BASS = [62, 57, 59, 54, 55, 50, 55, 57];                  // D A H F# G D G A
-const CANON_V1 = [78, 76, 74, 73, 71, 69, 71, 73];                    // F# E D C# B A B C#  (duge note)
-const CANON_V2 = [74, 78, 81, 79, 78, 74, 78, 76, 74, 71, 74, 69, 67, 71, 69, 67];   // četvrtine
-const CANON_V3 = [[74, 78, 81, 78], [73, 76, 81, 76], [74, 78, 83, 78], [73, 78, 81, 78], [71, 74, 79, 74], [69, 74, 78, 74], [71, 74, 79, 74], [73, 76, 81, 76]];  // arpeggio
-const LOOP_BEATS = 48, EVENTS = [];
-for (let c = 0; c < 3; c++) {
-  const b0 = c * 16;
-  CANON_BASS.forEach((n, i) => EVENTS.push({ t: b0 + i * 2, n, d: 2, bass: true }));
-  if (c === 0) CANON_V1.forEach((n, i) => EVENTS.push({ t: b0 + i * 2, n, d: 2 }));
-  if (c === 1) CANON_V2.forEach((n, i) => EVENTS.push({ t: b0 + i, n, d: 1 }));
-  if (c === 2) CANON_V3.forEach((chord, i) => chord.forEach((n, k) => EVENTS.push({ t: b0 + i * 2 + k * .5, n, d: .5 })));
+/* muzika: originalna "tajni agent" tema (D-mol): lukav bas, škljocaji, trzana gitara */
+const BEAT = 60 / 108, mhz = n => 440 * Math.pow(2, (n - 69) / 12);
+const ROOTS = [50, 50, 55, 55, 46, 57, 50, 50];                // Dm Dm Gm Gm B A Dm Dm
+const THIRD = [3, 3, 3, 3, 4, 4, 3, 3];
+const MEL = [                                                  // osmine, null = pauza
+  [74, null, 77, 76, 74, null, 72, null],
+  [70, null, 72, 70, 69, null, null, null],
+  [74, null, 77, 75, 74, null, 70, null],
+  [67, null, 70, 69, 67, null, null, 69],
+  [74, null, 74, 72, 70, null, 69, 70],
+  [73, null, 76, 79, 76, null, 73, 72],
+  [74, 73, 74, null, 77, null, 76, 74],
+  [74, null, null, null, 69, 70, 71, null],
+];
+const LOOP_BEATS = 64, EVENTS = [];
+for (let pass = 0; pass < 2; pass++) for (let bar = 0; bar < 8; bar++) {
+  const b0 = (pass * 8 + bar) * 4, root = ROOTS[bar];
+  [0, null, 0, THIRD[bar], null, 0, -5, -2].forEach((o, i) => { if (o !== null) EVENTS.push({ t: b0 + i * .5, k: "b", n: root + o, d: .45 }); });
+  for (let i = 0; i < 8; i++) { EVENTS.push({ t: b0 + i * .5, k: "h", a: i % 2 }); if (i === 2 || i === 6) EVENTS.push({ t: b0 + i * .5, k: "s" }); }
+  MEL[bar].forEach((n, i) => { if (n !== null) EVENTS.push({ t: b0 + i * .5, k: "m", n: n - (pass === 1 && bar < 4 ? 12 : 0), d: .55 }); });
 }
 EVENTS.sort((a, b) => a.t - b.t);
-const BEAT = .6, mhz = n => 440 * Math.pow(2, (n - 69) / 12);
-let musicStartT = 0, musicEvt = 0, musicLoop = 0, musicTimer = null, musicLevel = .045, musicHarm = false;
-function musicNote(freq, t0, dur, vol) {
+let noiseBuf = null;
+const getNoise = () => noiseBuf || (noiseBuf = (() => { const b = AC.createBuffer(1, AC.sampleRate, AC.sampleRate), d = b.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; return b; })());
+function mNoise(t0, dur, filterType, freq, q, vol) {
   const c = AC; if (!c || !musicGain) return;
-  [[1, vol, "triangle"], [2, vol * .35, "sine"], [3, vol * .12, "sine"]].forEach(([m, v, type]) => {
-    const o = c.createOscillator(), g = c.createGain();
-    o.type = type; o.frequency.value = freq * m;
-    g.gain.setValueAtTime(.0001, t0); g.gain.exponentialRampToValueAtTime(v, t0 + .015); g.gain.exponentialRampToValueAtTime(.0001, t0 + dur);
-    o.connect(g).connect(musicGain); o.start(t0); o.stop(t0 + dur + .05);
-  });
+  const src = c.createBufferSource(); src.buffer = getNoise();
+  const f = c.createBiquadFilter(); f.type = filterType; f.frequency.value = freq; f.Q.value = q;
+  const g = c.createGain(); g.gain.setValueAtTime(vol, t0); g.gain.exponentialRampToValueAtTime(.0001, t0 + dur);
+  src.connect(f).connect(g).connect(musicGain); src.start(t0); src.stop(t0 + dur + .02);
 }
+const mHat = (t0, vol) => mNoise(t0, .045, "highpass", 7000, .7, vol);
+const mSnap = (t0, vol) => mNoise(t0, .1, "bandpass", 1800, 1.3, vol);
+function mVoice(freq, t0, dur, vol, cutStart, cutEnd) {          // trzani ton: testera kroz filter koji se brzo zatvara
+  const c = AC; if (!c || !musicGain) return;
+  const o = c.createOscillator(), f = c.createBiquadFilter(), g = c.createGain();
+  o.type = "sawtooth"; o.frequency.value = freq;
+  f.type = "lowpass"; f.Q.value = 3; f.frequency.setValueAtTime(cutStart, t0); f.frequency.exponentialRampToValueAtTime(cutEnd, t0 + dur * .8);
+  g.gain.setValueAtTime(.0001, t0); g.gain.exponentialRampToValueAtTime(vol, t0 + .008); g.gain.exponentialRampToValueAtTime(.0001, t0 + dur);
+  o.connect(f).connect(g).connect(musicGain); o.start(t0); o.stop(t0 + dur + .05);
+}
+const mBass = (freq, t0, dur, vol) => mVoice(freq, t0, dur, vol, 1100, 260);
+const mPluck = (freq, t0, dur, vol) => mVoice(freq, t0, dur, vol, 3200, 700);
+let musicStartT = 0, musicEvt = 0, musicLoop = 0, musicTimer = null, musicLevel = .05, musicHarm = false;
 function musicTick() {
   const c = AC; if (!c || !soundOn || document.hidden) return;
   if (!musicStartT) { musicStartT = c.currentTime + .1; musicEvt = 0; musicLoop = 0; }
   for (let guard = 0; guard < 5000; guard++) {
-    const ev = EVENTS[musicEvt], when = musicStartT + (musicLoop * LOOP_BEATS + ev.t) * BEAT;
+    const ev = EVENTS[musicEvt], when = musicStartT + (musicLoop * LOOP_BEATS * 1 + ev.t) * BEAT;
     if (when > c.currentTime + .8) break;
     if (when >= c.currentTime - .05) {
-      const dur = Math.max(.5, ev.d * BEAT * 1.3);
-      musicNote(mhz(ev.n), when, dur, ev.bass ? musicLevel * .85 : musicLevel);
-      if (musicHarm && !ev.bass) musicNote(mhz(ev.n + 12), when + .01, dur * .8, musicLevel * .35);
+      if (ev.k === "b") mBass(mhz(ev.n), when, ev.d * BEAT * 1.4, musicLevel * 1.7);
+      else if (ev.k === "h") mHat(when, musicLevel * (ev.a ? .5 : .28));
+      else if (ev.k === "s") mSnap(when, musicLevel * .8);
+      else {
+        mPluck(mhz(ev.n), when, Math.max(.3, ev.d * BEAT * 1.7), musicLevel * .8);
+        if (musicHarm) mPluck(mhz(ev.n + 12), when + .012, .28, musicLevel * .3);
+      }
     }
     if (++musicEvt >= EVENTS.length) { musicEvt = 0; musicLoop++; }
   }

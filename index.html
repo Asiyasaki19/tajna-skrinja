@@ -353,30 +353,41 @@ const sfx = {
   creak:() => { tone(90, 0, .5, "sawtooth", .05); tone(120, .15, .6, "sawtooth", .04); },
   win:  () => [523, 659, 784, 1047, 784, 1047, 1319].forEach((f, i) => tone(f, i * .13, .5, "triangle", .14)),
 };
-/* muzika: originalna "tajni agent" tema (D-mol): lukav bas, škljocaji, trzana gitara */
-const BEAT = 60 / 108, mhz = n => 440 * Math.pow(2, (n - 69) / 12);
+/* muzika: originalna "tajni agent" tema, sporo i prikriveno (D-mol): puzeći bas, jeka, tremolo gitara */
+const BEAT = 60 / 76, mhz = n => 440 * Math.pow(2, (n - 69) / 12);
 const ROOTS = [50, 50, 55, 55, 46, 57, 50, 50];                // Dm Dm Gm Gm B A Dm Dm
-const THIRD = [3, 3, 3, 3, 4, 4, 3, 3];
+const BASSCELL = [0, null, null, 0, null, 0, -1, 0];           // korenski ton i hromatski "puzeći" susedni ton
+const STAB = [62, 65, 69, 73];                                 // Dm(maj7): D F A C#
 const MEL = [                                                  // osmine, null = pauza
-  [74, null, 77, 76, 74, null, 72, null],
-  [70, null, 72, 70, 69, null, null, null],
-  [74, null, 77, 75, 74, null, 70, null],
-  [67, null, 70, 69, 67, null, null, 69],
-  [74, null, 74, 72, 70, null, 69, 70],
-  [73, null, 76, 79, 76, null, 73, 72],
-  [74, 73, 74, null, 77, null, 76, 74],
-  [74, null, null, null, 69, 70, 71, null],
+  [74, null, null, 73, 74, null, null, null],
+  [77, null, null, 76, 74, null, 73, null],
+  [70, null, null, 69, 70, null, null, null],
+  [74, null, 72, null, 70, null, 67, null],
+  [70, null, 74, null, 77, null, 74, null],
+  [73, null, 76, null, 79, null, 78, 76],
+  [74, null, null, 73, 74, null, 77, null],
+  [74, null, 73, null, 70, null, 69, null],
 ];
 const LOOP_BEATS = 64, EVENTS = [];
 for (let pass = 0; pass < 2; pass++) for (let bar = 0; bar < 8; bar++) {
   const b0 = (pass * 8 + bar) * 4, root = ROOTS[bar];
-  [0, null, 0, THIRD[bar], null, 0, -5, -2].forEach((o, i) => { if (o !== null) EVENTS.push({ t: b0 + i * .5, k: "b", n: root + o, d: .45 }); });
+  BASSCELL.forEach((o, i) => { if (o !== null) EVENTS.push({ t: b0 + i * .5, k: "b", n: root + o, d: .5 }); });
+  EVENTS.push({ t: b0, k: "k" }, { t: b0, k: "p", n: root, d: 4 });
   for (let i = 0; i < 8; i++) { EVENTS.push({ t: b0 + i * .5, k: "h", a: i % 2 }); if (i === 2 || i === 6) EVENTS.push({ t: b0 + i * .5, k: "s" }); }
-  MEL[bar].forEach((n, i) => { if (n !== null) EVENTS.push({ t: b0 + i * .5, k: "m", n: n - (pass === 1 && bar < 4 ? 12 : 0), d: .55 }); });
+  MEL[bar].forEach((n, i) => { if (n !== null) EVENTS.push({ t: b0 + i * .5, k: "m", n: n - (pass === 1 && bar < 4 ? 12 : 0), d: .9 }); });
+  if (bar === 3 || bar === 7) STAB.forEach(n => EVENTS.push({ t: b0 + 3.5, k: "t", n, d: .4 }));
 }
 EVENTS.sort((a, b) => a.t - b.t);
-let noiseBuf = null;
+let noiseBuf = null, echoIn = null;
 const getNoise = () => noiseBuf || (noiseBuf = (() => { const b = AC.createBuffer(1, AC.sampleRate, AC.sampleRate), d = b.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; return b; })());
+function ensureEcho() {                                        // jeka (dotted osmina), klasičan "špijunski" zvuk gitare
+  if (echoIn || !AC || !musicGain) return;
+  echoIn = AC.createGain(); echoIn.gain.value = .6;
+  const dl = AC.createDelay(2); dl.delayTime.value = BEAT * .75;
+  const lp = AC.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 2200;
+  const fb = AC.createGain(); fb.gain.value = .42;
+  echoIn.connect(dl); dl.connect(lp); lp.connect(musicGain); lp.connect(fb); fb.connect(dl);
+}
 function mNoise(t0, dur, filterType, freq, q, vol) {
   const c = AC; if (!c || !musicGain) return;
   const src = c.createBufferSource(); src.buffer = getNoise();
@@ -384,38 +395,58 @@ function mNoise(t0, dur, filterType, freq, q, vol) {
   const g = c.createGain(); g.gain.setValueAtTime(vol, t0); g.gain.exponentialRampToValueAtTime(.0001, t0 + dur);
   src.connect(f).connect(g).connect(musicGain); src.start(t0); src.stop(t0 + dur + .02);
 }
-const mHat = (t0, vol) => mNoise(t0, .045, "highpass", 7000, .7, vol);
-const mSnap = (t0, vol) => mNoise(t0, .1, "bandpass", 1800, 1.3, vol);
-function mVoice(freq, t0, dur, vol, cutStart, cutEnd) {          // trzani ton: testera kroz filter koji se brzo zatvara
+const mHat = (t0, vol) => mNoise(t0, .05, "highpass", 7000, .7, vol);
+const mSnap = (t0, vol) => mNoise(t0, .11, "bandpass", 1800, 1.3, vol);
+function mKick(t0, vol) {
+  const c = AC; if (!c || !musicGain) return;
+  const o = c.createOscillator(), g = c.createGain();
+  o.type = "sine"; o.frequency.setValueAtTime(150, t0); o.frequency.exponentialRampToValueAtTime(46, t0 + .13);
+  g.gain.setValueAtTime(.0001, t0); g.gain.exponentialRampToValueAtTime(vol, t0 + .005); g.gain.exponentialRampToValueAtTime(.0001, t0 + .22);
+  o.connect(g).connect(musicGain); o.start(t0); o.stop(t0 + .25);
+}
+function mVoice(freq, t0, dur, vol, cutStart, cutEnd, wet, vib) {   // trzani ton: testera kroz filter koji se zatvara (+ jeka, + vibrato)
   const c = AC; if (!c || !musicGain) return;
   const o = c.createOscillator(), f = c.createBiquadFilter(), g = c.createGain();
   o.type = "sawtooth"; o.frequency.value = freq;
   f.type = "lowpass"; f.Q.value = 3; f.frequency.setValueAtTime(cutStart, t0); f.frequency.exponentialRampToValueAtTime(cutEnd, t0 + dur * .8);
-  g.gain.setValueAtTime(.0001, t0); g.gain.exponentialRampToValueAtTime(vol, t0 + .008); g.gain.exponentialRampToValueAtTime(.0001, t0 + dur);
-  o.connect(f).connect(g).connect(musicGain); o.start(t0); o.stop(t0 + dur + .05);
+  g.gain.setValueAtTime(.0001, t0); g.gain.exponentialRampToValueAtTime(vol, t0 + .01); g.gain.exponentialRampToValueAtTime(.0001, t0 + dur);
+  o.connect(f).connect(g).connect(musicGain); if (wet && echoIn) g.connect(echoIn);
+  if (vib) { const l = c.createOscillator(), lg = c.createGain(); l.frequency.value = 5.2; lg.gain.value = 14; l.connect(lg).connect(o.detune); l.start(t0); l.stop(t0 + dur + .05); }
+  o.start(t0); o.stop(t0 + dur + .05);
 }
-const mBass = (freq, t0, dur, vol) => mVoice(freq, t0, dur, vol, 1100, 260);
-const mPluck = (freq, t0, dur, vol) => mVoice(freq, t0, dur, vol, 3200, 700);
+const mBass = (freq, t0, dur, vol) => mVoice(freq, t0, dur, vol, 1000, 240, false, false);
+const mPluck = (freq, t0, dur, vol) => mVoice(freq, t0, dur, vol, 2600, 560, true, true);
+function mPad(freq, t0, dur, vol) {                            // tamna, tiha "žica" ispod svega
+  const c = AC; if (!c || !musicGain) return;
+  const f = c.createBiquadFilter(), g = c.createGain();
+  f.type = "lowpass"; f.frequency.value = 420; f.Q.value = .8;
+  g.gain.setValueAtTime(.0001, t0); g.gain.exponentialRampToValueAtTime(vol, t0 + .9); g.gain.setValueAtTime(vol, t0 + dur - .8); g.gain.exponentialRampToValueAtTime(.0001, t0 + dur);
+  f.connect(g).connect(musicGain);
+  [-7, 7].forEach(cents => { const o = c.createOscillator(); o.type = "sawtooth"; o.frequency.value = freq; o.detune.value = cents; o.connect(f); o.start(t0); o.stop(t0 + dur + .05); });
+}
 let musicStartT = 0, musicEvt = 0, musicLoop = 0, musicTimer = null, musicLevel = .05, musicHarm = false;
 function musicTick() {
   const c = AC; if (!c || !soundOn || document.hidden) return;
   if (!musicStartT) { musicStartT = c.currentTime + .1; musicEvt = 0; musicLoop = 0; }
   for (let guard = 0; guard < 5000; guard++) {
-    const ev = EVENTS[musicEvt], when = musicStartT + (musicLoop * LOOP_BEATS * 1 + ev.t) * BEAT;
+    const ev = EVENTS[musicEvt], when = musicStartT + (musicLoop * LOOP_BEATS + ev.t) * BEAT;
     if (when > c.currentTime + .8) break;
     if (when >= c.currentTime - .05) {
-      if (ev.k === "b") mBass(mhz(ev.n), when, ev.d * BEAT * 1.4, musicLevel * 1.7);
-      else if (ev.k === "h") mHat(when, musicLevel * (ev.a ? .5 : .28));
-      else if (ev.k === "s") mSnap(when, musicLevel * .8);
+      if (ev.k === "b") mBass(mhz(ev.n), when, ev.d * BEAT * 1.5, musicLevel * 1.8);
+      else if (ev.k === "k") mKick(when, musicLevel * 2.2);
+      else if (ev.k === "h") mHat(when, musicLevel * (ev.a ? .45 : .22));
+      else if (ev.k === "s") mSnap(when, musicLevel * .7);
+      else if (ev.k === "p") mPad(mhz(ev.n), when, ev.d * BEAT, musicLevel * .75);
+      else if (ev.k === "t") mPluck(mhz(ev.n), when, ev.d * BEAT * 2.2, musicLevel * .6);
       else {
-        mPluck(mhz(ev.n), when, Math.max(.3, ev.d * BEAT * 1.7), musicLevel * .8);
-        if (musicHarm) mPluck(mhz(ev.n + 12), when + .012, .28, musicLevel * .3);
+        mPluck(mhz(ev.n), when, ev.d * BEAT * 2.1, musicLevel * .85);
+        if (musicHarm) mPluck(mhz(ev.n + 12), when + .012, .35, musicLevel * .3);
       }
     }
     if (++musicEvt >= EVENTS.length) { musicEvt = 0; musicLoop++; }
   }
 }
-function startMusic() { if (musicTimer || !ac()) return; musicTimer = setInterval(musicTick, 250); musicTick(); }
+function startMusic() { if (musicTimer || !ac()) return; ensureEcho(); musicTimer = setInterval(musicTick, 250); musicTick(); }
 $("soundBtn").onclick = () => {
   soundOn = !soundOn; $("soundBtn").textContent = soundOn ? "🔊 Zvuk" : "🔇 Zvuk";
   if (musicGain) musicGain.gain.value = soundOn ? 1 : 0;
